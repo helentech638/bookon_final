@@ -628,7 +628,7 @@ router.post('/refund', authenticateToken, asyncHandler(async (req: Request, res:
       paymentIntentId: payment.stripePaymentIntentId!,
       amount: refundAmount,
       reason: reason || 'Customer request',
-      connectAccountId: payment.booking.activity.venue.stripeAccountId
+      connectAccountId: payment.booking.activity.venue.stripeAccountId || undefined
     });
 
     // Update payment status
@@ -679,21 +679,25 @@ router.get('/:paymentId/refunds', authenticateToken, asyncHandler(async (req: Re
     const { paymentId } = req.params;
     
     // Get payment to find the Stripe payment intent ID
-    const payment = await db('payments')
-      .select('stripe_payment_intent_id')
-      .where('id', paymentId)
-      .where('is_active', true)
-      .first();
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id: paymentId,
+        isActive: true
+      },
+      select: {
+        stripePaymentIntentId: true
+      }
+    });
 
     if (!payment) {
       throw new AppError('Payment not found', 404, 'PAYMENT_NOT_FOUND');
     }
 
-    if (!payment.stripe_payment_intent_id) {
+    if (!payment.stripePaymentIntentId) {
       throw new AppError('No Stripe payment intent found for this payment', 400, 'NO_STRIPE_PAYMENT_INTENT');
     }
     
-    const refunds = await stripeService.listRefunds(payment.stripe_payment_intent_id);
+    const refunds = await stripeService.listRefunds(payment.stripePaymentIntentId);
     
     res.json({
       success: true,

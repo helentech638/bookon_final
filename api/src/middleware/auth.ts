@@ -23,7 +23,7 @@ declare global {
 // JWT token verification middleware
 export const authenticateToken = async (
   req: Request,
-  _res: Response,
+  res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
@@ -92,7 +92,8 @@ export const authenticateToken = async (
                 id: decoded.userId,
                 email: decoded.email,
                 role: decoded.role,
-                isActive: true
+                isActive: true,
+                emailVerified: false
               };
               
               logger.info('Token automatically refreshed', { userId: decoded.userId });

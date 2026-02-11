@@ -130,6 +130,7 @@ router.post('/', authenticateToken, asyncHandler(async (req: Request, res: Respo
           name,
           stripeAccountId,
           stripeAccountType,
+          status: 'onboarded', // Default status
           franchiseFeeType,
           franchiseFeeValue: parseFloat(franchiseFeeValue),
           vatMode,

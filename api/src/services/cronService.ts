@@ -89,7 +89,7 @@ class CronService {
               type: 'tfc_payment_reminder',
               data: {
                 path: ['bookingData', 'reference'],
-                equals: booking.tfcReference
+                equals: booking.tfcReference || undefined
               }
             }
           });
@@ -109,7 +109,7 @@ class CronService {
               deadline: new Date(booking.tfcDeadline!),
               amount: Number(booking.amount),
               child: `${booking.child.firstName} ${booking.child.lastName}`,
-              activity: booking.activity.name,
+              activity: booking.activity.title,
               venue: booking.activity.venue.name,
               daysRemaining
             }
@@ -271,7 +271,7 @@ class CronService {
             {
               bookingId: booking.id,
               child: `${booking.child.firstName} ${booking.child.lastName}`,
-              activity: booking.activity.name,
+              activity: booking.activity.title,
               venue: booking.activity.venue.name,
               refundAmount: 0,
               creditAmount: 0,

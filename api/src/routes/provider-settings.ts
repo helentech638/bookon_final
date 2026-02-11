@@ -188,9 +188,6 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
     }
 
     const settings = await prisma.providerSettings.findMany({
-      include: {
-        // Include venue information if available
-      },
       orderBy: { updatedAt: 'desc' }
     });
 

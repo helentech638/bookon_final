@@ -14,7 +14,6 @@ const validateChild = [
   body('dateOfBirth').isISO8601().withMessage('Date of birth must be a valid date'),
   body('yearGroup').optional().trim().isLength({ max: 20 }).withMessage('Year group too long'),
   body('allergies').optional().trim().isLength({ max: 500 }).withMessage('Allergies description too long'),
-  body('medicalInfo').optional().trim().isLength({ max: 1000 }).withMessage('Medical info too long'),
 ];
 
 // Get all children for the authenticated user
@@ -26,7 +25,6 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
       return await client.child.findMany({
         where: {
           parentId: userId,
-          isActive: true
         },
         orderBy: {
           firstName: 'asc'
@@ -43,8 +41,6 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
         dateOfBirth: child.dateOfBirth,
         yearGroup: child.yearGroup,
         allergies: child.allergies,
-        medicalInfo: child.medicalInfo,
-        emergencyContacts: child.emergencyContacts,
         createdAt: child.createdAt,
         updatedAt: child.updatedAt
       }))
@@ -66,7 +62,6 @@ router.get('/:id', authenticateToken, asyncHandler(async (req: Request, res: Res
         where: {
           id: id,
           parentId: userId,
-          isActive: true
         }
       });
     });
@@ -84,8 +79,6 @@ router.get('/:id', authenticateToken, asyncHandler(async (req: Request, res: Res
         dateOfBirth: child.dateOfBirth,
         yearGroup: child.yearGroup,
         allergies: child.allergies,
-        medicalInfo: child.medicalInfo,
-        emergencyContacts: child.emergencyContacts,
         createdAt: child.createdAt,
         updatedAt: child.updatedAt
       }
@@ -112,8 +105,6 @@ router.post('/', authenticateToken, validateChild, asyncHandler(async (req: Requ
       dateOfBirth,
       yearGroup,
       allergies,
-      medicalInfo,
-      emergencyContacts
     } = req.body;
 
     // Check if child with same name and date of birth already exists for this user
@@ -124,7 +115,6 @@ router.post('/', authenticateToken, validateChild, asyncHandler(async (req: Requ
           firstName: firstName,
           lastName: lastName,
           dateOfBirth: new Date(dateOfBirth),
-          isActive: true
         }
       });
     });
@@ -140,11 +130,8 @@ router.post('/', authenticateToken, validateChild, asyncHandler(async (req: Requ
           firstName: firstName,
           lastName: lastName,
           dateOfBirth: new Date(dateOfBirth),
-          yearGroup: yearGroup,
-          allergies: allergies,
-          medicalInfo: medicalInfo,
-          emergencyContacts: emergencyContacts,
-          isActive: true
+          yearGroup: yearGroup || null,
+          allergies: allergies || null,
         },
         select: {
           id: true,
@@ -187,11 +174,14 @@ router.put('/:id', authenticateToken, validateChild, asyncHandler(async (req: Re
     }
 
     // Check if child exists and belongs to user
-    const existingChild = await db('children')
-      .where('id', id)
-      .where('user_id', userId)
-      .where('is_active', true)
-      .first();
+    const existingChild = await safePrismaQuery(async (client) => {
+      return await client.child.findFirst({
+        where: {
+          id: id,
+          parentId: userId,
+        }
+      });
+    });
 
     if (!existingChild) {
       throw new AppError('Child not found', 404, 'CHILD_NOT_FOUND');
@@ -203,38 +193,43 @@ router.put('/:id', authenticateToken, validateChild, asyncHandler(async (req: Re
       dateOfBirth,
       yearGroup,
       allergies,
-      medicalInfo,
-      emergencyContacts
     } = req.body;
 
     // Check if another child with same name and date of birth exists
-    const duplicateChild = await db('children')
-      .where('user_id', userId)
-      .whereNot('id', id)
-      .where('first_name', firstName)
-      .where('last_name', lastName)
-      .where('date_of_birth', dateOfBirth)
-      .where('is_active', true)
-      .first();
+    const duplicateChild = await safePrismaQuery(async (client) => {
+      return await client.child.findFirst({
+        where: {
+          parentId: userId,
+          id: { not: id },
+          firstName: firstName,
+          lastName: lastName,
+          dateOfBirth: new Date(dateOfBirth),
+        }
+      });
+    });
 
     if (duplicateChild) {
       throw new AppError('Another child with this name and date of birth already exists', 400, 'CHILD_ALREADY_EXISTS');
     }
 
     // Update child
-    const [updatedChild] = await db('children')
-      .where('id', id)
-      .update({
-        first_name: firstName,
-        last_name: lastName,
-        date_of_birth: dateOfBirth,
-        year_group: yearGroup,
-        allergies,
-        medical_info: medicalInfo,
-        emergency_contacts: emergencyContacts,
-        updated_at: new Date(),
-      })
-      .returning(['id', 'first_name', 'last_name']);
+    const updatedChild = await safePrismaQuery(async (client) => {
+      return await client.child.update({
+        where: { id: id },
+        data: {
+          firstName: firstName,
+          lastName: lastName,
+          dateOfBirth: new Date(dateOfBirth),
+          yearGroup: yearGroup || null,
+          allergies: allergies || null,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true
+        }
+      });
+    });
 
     logger.info('Child updated successfully', { 
       childId: id, 
@@ -246,8 +241,8 @@ router.put('/:id', authenticateToken, validateChild, asyncHandler(async (req: Re
       message: 'Child updated successfully',
       data: {
         id: updatedChild.id,
-        firstName: updatedChild.first_name,
-        lastName: updatedChild.last_name
+        firstName: updatedChild.firstName,
+        lastName: updatedChild.lastName
       }
     });
   } catch (error) {
@@ -264,33 +259,39 @@ router.delete('/:id', authenticateToken, asyncHandler(async (req: Request, res: 
     const userId = req.user!.id;
     
     // Check if child exists and belongs to user
-    const existingChild = await db('children')
-      .where('id', id)
-      .where('user_id', userId)
-      .where('is_active', true)
-      .first();
+    const existingChild = await safePrismaQuery(async (client) => {
+      return await client.child.findFirst({
+        where: {
+          id: id,
+          parentId: userId,
+        }
+      });
+    });
 
     if (!existingChild) {
       throw new AppError('Child not found', 404, 'CHILD_NOT_FOUND');
     }
 
     // Check if child has active bookings
-    const activeBookings = await db('bookings')
-      .where('child_id', id)
-      .where('is_active', true)
-      .first();
+    const activeBookings = await safePrismaQuery(async (client) => {
+      return await client.booking.findFirst({
+        where: {
+          childId: id,
+          status: { in: ['pending', 'confirmed'] }
+        }
+      });
+    });
 
     if (activeBookings) {
       throw new AppError('Cannot delete child with active bookings', 400, 'CHILD_HAS_BOOKINGS');
     }
 
-    // Soft delete - mark as inactive
-    await db('children')
-      .where('id', id)
-      .update({
-        is_active: false,
-        updated_at: new Date(),
+    // Delete child
+    await safePrismaQuery(async (client) => {
+      return await client.child.delete({
+        where: { id: id }
       });
+    });
 
     logger.info('Child deleted successfully', { 
       childId: id, 
@@ -315,46 +316,54 @@ router.get('/:id/bookings', authenticateToken, asyncHandler(async (req: Request,
     const userId = req.user!.id;
     
     // Check if child exists and belongs to user
-    const existingChild = await db('children')
-      .where('id', id)
-      .where('user_id', userId)
-      .where('is_active', true)
-      .first();
+    const existingChild = await safePrismaQuery(async (client) => {
+      return await client.child.findFirst({
+        where: {
+          id: id,
+          parentId: userId,
+        }
+      });
+    });
 
     if (!existingChild) {
       throw new AppError('Child not found', 404, 'CHILD_NOT_FOUND');
     }
 
-    const bookings = await db('bookings')
-      .select(
-        'bookings.*',
-        'activities.title as activity_title',
-        'activities.start_date',
-        'activities.start_time',
-        'venues.name as venue_name'
-      )
-      .join('activities', 'bookings.activity_id', 'activities.id')
-      .join('venues', 'activities.venue_id', 'venues.id')
-      .where('bookings.child_id', id)
-      .where('bookings.user_id', userId)
-      .orderBy('bookings.created_at', 'desc');
+    const bookings = await safePrismaQuery(async (client) => {
+      return await client.booking.findMany({
+        where: {
+          childId: id,
+          parentId: userId,
+        },
+        include: {
+          activity: {
+            include: {
+              venue: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+    });
 
     res.json({
       success: true,
-      data: bookings.map(booking => ({
+      data: bookings.map((booking: any) => ({
         id: booking.id,
         activity: {
-          title: booking.activity_title,
-          startDate: booking.start_date,
-          startTime: booking.start_time
+          title: booking.activity.title,
+          startDate: booking.activity.startDate,
+          startTime: booking.activity.startTime
         },
         venue: {
-          name: booking.venue_name
+          name: booking.activity.venue.name
         },
         status: booking.status,
-        totalAmount: parseFloat(booking.total_amount),
+        totalAmount: booking.totalAmount ? parseFloat(booking.totalAmount.toString()) : 0,
         notes: booking.notes,
-        createdAt: booking.created_at
+        createdAt: booking.createdAt
       }))
     });
   } catch (error) {

@@ -1092,7 +1092,8 @@ function App() {
       const token = localStorage.getItem('bookon_token');
       if (token) {
         try {
-          const response = await fetch('https://bookon-api.vercel.app/api/verify-token', {
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+          const response = await fetch(`${apiUrl.replace('/api/v1', '')}/api/verify-token`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',

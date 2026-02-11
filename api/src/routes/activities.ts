@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler';
-import { authenticateToken, requireRole } from '../middleware/auth';
+import { authenticateToken, requireRole, optionalAuth } from '../middleware/auth';
 import { prisma, safePrismaQuery } from '../utils/prisma';
 import { logger } from '../utils/logger';
 import { activityService } from '../services/activityService';
@@ -128,10 +128,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req: Request, res: Response
 
     res.json({
       success: true,
-      data: {
-        ...activity,
-        currency: activity.currency || 'GBP' // Add default currency if not present
-      }
+      data: activity
     });
   } catch (error) {
     logger.error('Error fetching activity:', error);
@@ -146,6 +143,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'coordinator']), async
     const {
       title,
       type,
+      activityTypeId,
       venueId,
       description,
       startDate,
@@ -154,16 +152,11 @@ router.post('/', authenticateToken, requireRole(['admin', 'coordinator']), async
       endTime,
       capacity,
       price,
-      earlyDropoff,
-      earlyDropoffPrice,
-      latePickup,
-      latePickupPrice,
-      generateSessions,
-      excludeDates
+      status
     } = req.body;
 
     // Validate required fields
-    if (!title || !type || !venueId || !startDate || !endDate || !startTime || !endTime) {
+    if (!title || !venueId || !startDate || !endDate || !startTime || !endTime || !capacity || price === undefined) {
       throw new AppError('Missing required fields', 400, 'MISSING_REQUIRED_FIELDS');
     }
 
@@ -178,39 +171,22 @@ router.post('/', authenticateToken, requireRole(['admin', 'coordinator']), async
       throw new AppError('Venue not found', 404, 'VENUE_NOT_FOUND');
     }
 
-    // Create activity with sessions using the service
-    const activityData = {
+    // Create activity using the service
+    const activity = await activityService.createActivity({
       title,
       type,
+      activityTypeId,
       venueId,
+      ownerId: req.user!.id,
       description,
-      capacity: capacity ? parseInt(capacity) : null,
-      price: price ? parseFloat(price) : 0,
-      createdBy: req.user!.id
-    };
-
-    const sessionOptions = {
-      activityId: '', // Will be set by service
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       startTime,
       endTime,
-      excludeDates: excludeDates || [],
-      generateSessions: generateSessions || false
-    };
-
-    const holidayOptions = type === 'holiday' ? {
-      earlyDropoff: earlyDropoff || false,
-      earlyDropoffPrice: earlyDropoffPrice ? parseFloat(earlyDropoffPrice) : 0,
-      latePickup: latePickup || false,
-      latePickupPrice: latePickupPrice ? parseFloat(latePickupPrice) : 0
-    } : undefined;
-
-    const activity = await activityService.createActivityWithSessions(
-      activityData,
-      sessionOptions,
-      holidayOptions
-    );
+      capacity: parseInt(capacity),
+      price: parseFloat(price),
+      status: status || 'active'
+    });
 
     logger.info('Activity created', {
       activityId: activity.id,
