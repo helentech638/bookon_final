@@ -1,3 +1,11 @@
+// Load environment variables FIRST before any other imports
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load .env file from api directory (one level up from src/)
+// When running from api directory, __dirname will be api/src, so ../.env is correct
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import 'express-async-errors';
 import express from 'express';
 import { createServer } from 'http';
@@ -7,7 +15,6 @@ import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
-import dotenv from 'dotenv';
 
 // Immediate logging to see if module loads
 console.log('🚀 Backend module loading...');
@@ -63,9 +70,6 @@ import { connectDatabase } from './utils/database';
 
 // Import WebSocket service
 import { initializeWebSocket } from './services/websocketService';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const server = createServer(app);
@@ -454,8 +458,12 @@ const startServer = async () => {
     }
 
     // Initialize WebSocket service
-    initializeWebSocket(server);
-    logger.info('🔌 WebSocket service initialized');
+    try {
+      initializeWebSocket(server);
+      logger.info('🔌 WebSocket service initialized');
+    } catch (error: any) {
+      logger.warn('⚠️ WebSocket service not available:', error.message || 'socket.io not installed');
+    }
 
     // Start cron service for automated notifications
     cronService.start();

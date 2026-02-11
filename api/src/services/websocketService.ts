@@ -1,4 +1,16 @@
-import { Server as SocketIOServer } from 'socket.io';
+// Conditional import for socket.io - optional dependency
+let SocketIOServer: any;
+let Socket: any;
+try {
+  const socketIO = require('socket.io');
+  SocketIOServer = socketIO.Server;
+  Socket = socketIO.Socket;
+} catch (e) {
+  // socket.io not installed - websocket features will be disabled
+  SocketIOServer = null;
+  Socket = null;
+}
+
 import { Server as HTTPServer } from 'http';
 import { logger } from '../utils/logger';
 import { NotificationService } from './notificationService';
@@ -6,10 +18,15 @@ import jwt from 'jsonwebtoken';
 import { prisma, safePrismaQuery } from '../utils/prisma';
 
 export class WebSocketService {
-  private io: SocketIOServer;
+  private io: any;
   private connectedUsers: Map<string, string> = new Map(); // userId -> socketId
 
   constructor(server: HTTPServer) {
+    if (!SocketIOServer) {
+      logger.warn('socket.io not installed - WebSocket features disabled');
+      throw new Error('socket.io is required for WebSocketService');
+    }
+    
     this.io = new SocketIOServer(server, {
       cors: {
         origin: process.env['FRONTEND_URL'] || "http://localhost:5173",
@@ -22,7 +39,7 @@ export class WebSocketService {
   }
 
   private setupEventHandlers() {
-    this.io.on('connection', (socket) => {
+    this.io.on('connection', (socket: any) => {
       logger.info('User connected to WebSocket', { socketId: socket.id });
 
       // Handle user authentication

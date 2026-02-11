@@ -142,14 +142,14 @@ router.get('/activity/:id', asyncHandler(async (req: Request, res: Response) => 
 
     const activityData = {
       id: activity.id,
-      title: activity.name,
+      title: activity.title,
       description: activity.description,
       startDate: activity.createdAt, // Using createdAt as placeholder
       startTime: activity.createdAt, // Using createdAt as placeholder
       endTime: activity.createdAt, // Using createdAt as placeholder
       price: 0, // Default price
       currency: 'GBP',
-      capacity: activity.maxCapacity,
+      capacity: activity.capacity,
       bookedCount: bookingCount,
       venue: {
         id: activity.venueId,
@@ -374,7 +374,7 @@ router.post('/book', asyncHandler(async (req: Request, res: Response) => {
       }
     });
 
-    if (currentBookings >= (activity.maxCapacity || 20)) {
+    if (currentBookings >= (activity.capacity || 20)) {
       throw new AppError('Activity is fully booked for this date', 400, 'ACTIVITY_FULL');
     }
 

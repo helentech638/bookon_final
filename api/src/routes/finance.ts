@@ -187,9 +187,9 @@ router.post('/discounts', authenticateToken, requireRole(['admin']), asyncHandle
       message: 'Discount created successfully',
       data: discount
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Error creating discount:', error);
-    if (error.code === 'P2002') {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
       throw new AppError('Discount code already exists', 400, 'DISCOUNT_CODE_EXISTS');
     }
     throw new AppError('Failed to create discount', 500, 'DISCOUNT_CREATE_ERROR');

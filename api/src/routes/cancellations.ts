@@ -268,7 +268,7 @@ router.get('/pending', authenticateToken, asyncHandler(async (req: Request, res:
       child: `${refund.booking.child.firstName} ${refund.booking.child.lastName}`,
       parent: `${refund.booking.parent.firstName} ${refund.booking.parent.lastName}`,
       parentEmail: refund.booking.parent.email,
-      activity: refund.booking.activity.name,
+      activity: refund.booking.activity.title,
       venue: refund.booking.activity.venue.name,
       venueId: refund.booking.activity.venue.id,
       auditTrail: refund.auditTrail

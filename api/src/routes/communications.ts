@@ -153,7 +153,7 @@ router.put('/templates/:id', authenticateToken, asyncHandler(async (req: Request
     });
   } catch (error) {
     logger.error('Error updating email template:', error);
-    if (error.code === 'P2025') {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
       throw new AppError('Email template not found', 404, 'TEMPLATE_NOT_FOUND');
     }
     throw new AppError('Failed to update email template', 500, 'TEMPLATE_UPDATE_ERROR');
@@ -181,7 +181,7 @@ router.delete('/templates/:id', authenticateToken, asyncHandler(async (req: Requ
     });
   } catch (error) {
     logger.error('Error deleting email template:', error);
-    if (error.code === 'P2025') {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
       throw new AppError('Email template not found', 404, 'TEMPLATE_NOT_FOUND');
     }
     throw new AppError('Failed to delete email template', 500, 'TEMPLATE_DELETE_ERROR');

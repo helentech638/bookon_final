@@ -142,7 +142,6 @@ export class DataRetentionService {
           firstName: 'Anonymized',
           lastName: 'User',
           phone: null,
-          address: null,
           stripeCustomerId: null,
           isActive: false,
           updatedAt: new Date()
@@ -156,8 +155,6 @@ export class DataRetentionService {
           firstName: 'Anonymized',
           lastName: 'Child',
           allergies: null,
-          medicalInfo: null,
-          emergencyContacts: null,
           updatedAt: new Date()
         }
       });
@@ -167,8 +164,7 @@ export class DataRetentionService {
         where: { userId },
         data: {
           userId: 'anonymized',
-          userRole: 'anonymized',
-          updatedAt: new Date()
+          userRole: 'anonymized'
         }
       });
 
@@ -276,7 +272,6 @@ export class DataRetentionService {
             lastName: true,
             role: true,
             phone: true,
-            address: true,
             createdAt: true,
             updatedAt: true,
             lastLoginAt: true
@@ -291,8 +286,6 @@ export class DataRetentionService {
             dateOfBirth: true,
             yearGroup: true,
             allergies: true,
-            medicalInfo: true,
-            emergencyContacts: true,
             createdAt: true,
             updatedAt: true
           }
@@ -371,14 +364,29 @@ export class DataRetentionService {
     try {
       logger.info('Deleting user data for GDPR compliance', { userId });
 
-      // Delete in order to respect foreign key constraints
-      await prisma.registerEntry.deleteMany({
-        where: {
-          child: {
-            parentId: userId
-          }
-        }
+      // Delete registers for activities that have bookings from this user's children
+      // First get all activityIds from bookings for this user's children
+      const userChildren = await prisma.child.findMany({
+        where: { parentId: userId },
+        select: { id: true }
       });
+      const childIds = userChildren.map(c => c.id);
+      
+      if (childIds.length > 0) {
+        const bookings = await prisma.booking.findMany({
+          where: { childId: { in: childIds } },
+          select: { activityId: true }
+        });
+        const activityIds = [...new Set(bookings.map(b => b.activityId))];
+        
+        if (activityIds.length > 0) {
+          await prisma.register.deleteMany({
+            where: {
+              activityId: { in: activityIds }
+            }
+          });
+        }
+      }
 
       await prisma.walletCredit.deleteMany({
         where: { parentId: userId }
