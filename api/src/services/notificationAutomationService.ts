@@ -212,9 +212,10 @@ class NotificationAutomationService {
       // Send email
       await emailService.sendEmail({
         to: user.email,
+        toName: user.firstName,
         subject,
-        html: htmlContent,
-        text: textContent
+        htmlContent,
+        textContent
       });
 
       // Create notification record
@@ -374,9 +375,10 @@ class NotificationAutomationService {
       // Send email
       await emailService.sendEmail({
         to: user.email,
+        toName: user.firstName,
         subject,
-        html: htmlContent,
-        text: `Payment reminder for booking ${bookingData.reference}. Only ${bookingData.daysRemaining} days remaining.`
+        htmlContent,
+        textContent: `Payment reminder for booking ${bookingData.reference}. Only ${bookingData.daysRemaining} days remaining.`
       });
 
       // Create notification record
@@ -543,9 +545,10 @@ class NotificationAutomationService {
       // Send email
       await emailService.sendEmail({
         to: user.email,
+        toName: user.firstName,
         subject,
-        html: htmlContent,
-        text: `Booking cancellation confirmed for ${cancellationData.activity}. ${cancellationData.refundAmount > 0 ? `Refund: £${cancellationData.refundAmount.toFixed(2)}` : ''} ${cancellationData.creditAmount > 0 ? `Credit: £${cancellationData.creditAmount.toFixed(2)}` : ''}`
+        htmlContent,
+        textContent: `Booking cancellation confirmed for ${cancellationData.activity}. ${cancellationData.refundAmount > 0 ? `Refund: £${cancellationData.refundAmount.toFixed(2)}` : ''} ${cancellationData.creditAmount > 0 ? `Credit: £${cancellationData.creditAmount.toFixed(2)}` : ''}`
       });
 
       // Create notification record
@@ -747,9 +750,10 @@ class NotificationAutomationService {
       // Send email
       await emailService.sendEmail({
         to: user.email,
+        toName: user.firstName,
         subject,
-        html: htmlContent,
-        text: `Credit expiring soon: £${creditData.amount.toFixed(2)} expires in ${creditData.daysUntilExpiry} days`
+        htmlContent,
+        textContent: `Credit expiring soon: £${creditData.amount.toFixed(2)} expires in ${creditData.daysUntilExpiry} days`
       });
 
       // Create notification record

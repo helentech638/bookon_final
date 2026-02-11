@@ -93,7 +93,7 @@ class EdgeCaseService {
         where: { id: fromBookingId },
         data: {
           status: 'cancelled',
-          notes: `Transferred to ${targetActivity.name}: ${reason}`,
+          notes: `Transferred to ${targetActivity.title}: ${reason}`,
           updatedAt: new Date()
         }
       });
@@ -116,9 +116,9 @@ class EdgeCaseService {
           tfcInstructions: originalBooking.tfcInstructions,
           holdPeriod: originalBooking.holdPeriod,
           bookingDate: transferDate || new Date(),
-          activityDate: targetActivity.date,
-          activityTime: targetActivity.time,
-          notes: `Transferred from ${originalBooking.activity.name}: ${reason}`
+          activityDate: targetActivity.startDate, // Use startDate from Activity
+          activityTime: targetActivity.startTime, // Use startTime from Activity
+          notes: `Transferred from ${originalBooking.activity.title}: ${reason}`
         }
       });
 
@@ -135,24 +135,33 @@ class EdgeCaseService {
         const refundAmount = Math.abs(priceDifference);
         
         if (originalBooking.paymentMethod === 'card') {
-          // Create refund transaction
-          await prisma.refundTransaction.create({
-            data: {
-              bookingId: fromBookingId,
-              amount: refundAmount,
-              method: 'card',
-              fee: 0, // No fee for transfers
-              reason: 'transfer_refund',
-              status: 'pending',
-              adminId: adminId || null,
-              auditTrail: {
-                transferFrom: fromBookingId,
-                transferTo: newBooking.id,
-                reason,
-                processedBy: adminId || null
-              }
-            }
+          // Get paymentId from booking's payment
+          const payment = await prisma.payment.findFirst({
+            where: { bookingId: fromBookingId },
+            orderBy: { createdAt: 'desc' }
           });
+
+          if (payment) {
+            // Create refund transaction
+            await prisma.refundTransaction.create({
+              data: {
+                paymentId: payment.id,
+                bookingId: fromBookingId,
+                amount: refundAmount,
+                method: 'card',
+                fee: 0, // No fee for transfers
+                reason: 'transfer_refund',
+                status: 'pending',
+                adminId: adminId || null,
+                auditTrail: {
+                  transferFrom: fromBookingId,
+                  transferTo: newBooking.id,
+                  reason,
+                  processedBy: adminId || null
+                }
+              }
+            });
+          }
         } else {
           // Issue credit
           await prisma.walletCredit.create({
@@ -164,7 +173,7 @@ class EdgeCaseService {
               expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
               source: 'transfer_refund',
               status: 'active',
-              description: `Transfer refund from ${originalBooking.activity.name} to ${targetActivity.name}`
+              description: `Transfer refund from ${originalBooking.activity.title} to ${targetActivity.title}`
             }
           });
           creditAmount = refundAmount;
@@ -337,22 +346,31 @@ class EdgeCaseService {
 
       // If chargeback was lost, process refund
       if (resolution === 'lost') {
-        await prisma.refundTransaction.create({
-          data: {
-            bookingId: chargeback.bookingId,
-            amount: chargeback.amount,
-            method: 'card',
-            fee: 0, // No admin fee for chargeback refunds
-            reason: 'chargeback_lost',
-            status: 'pending',
-            adminId,
-            auditTrail: {
-              chargebackId,
-              resolution,
-              notes
-            }
-          }
+        // Get paymentId from booking's payment
+        const payment = await prisma.payment.findFirst({
+          where: { bookingId: chargeback.bookingId },
+          orderBy: { createdAt: 'desc' }
         });
+
+        if (payment) {
+          await prisma.refundTransaction.create({
+            data: {
+              paymentId: payment.id,
+              bookingId: chargeback.bookingId,
+              amount: chargeback.amount,
+              method: 'card',
+              fee: 0, // No admin fee for chargeback refunds
+              reason: 'chargeback_lost',
+              status: 'pending',
+              adminId,
+              auditTrail: {
+                chargebackId,
+                resolution,
+                notes
+              }
+            }
+          });
+        }
       }
 
       // Log audit event
@@ -415,25 +433,34 @@ class EdgeCaseService {
       if (refundMethod === 'card' || refundMethod === 'mixed') {
         const cardRefundAmount = refundMethod === 'mixed' ? refundAmount * 0.5 : refundAmount;
         
-        const refundTransaction = await prisma.refundTransaction.create({
-          data: {
-            bookingId,
-            amount: cardRefundAmount,
-            method: 'card',
-            fee: 0,
-            reason: 'partial_refund',
-            status: 'pending',
-            adminId,
-            auditTrail: {
-              originalAmount: totalPaid,
-              refundAmount,
-              refundMethod,
-              reason,
-              processedBy: adminId
-            }
-          }
+        // Get paymentId from booking's payment
+        const payment = await prisma.payment.findFirst({
+          where: { bookingId },
+          orderBy: { createdAt: 'desc' }
         });
-        refundTransactionId = refundTransaction.id;
+
+        if (payment) {
+          const refundTransaction = await prisma.refundTransaction.create({
+            data: {
+              paymentId: payment.id,
+              bookingId,
+              amount: cardRefundAmount,
+              method: 'card',
+              fee: 0,
+              reason: 'partial_refund',
+              status: 'pending',
+              adminId,
+              auditTrail: {
+                originalAmount: totalPaid,
+                refundAmount,
+                refundMethod,
+                reason,
+                processedBy: adminId
+              }
+            }
+          });
+          refundTransactionId = refundTransaction.id;
+        }
       }
 
       if (refundMethod === 'credit' || refundMethod === 'mixed') {

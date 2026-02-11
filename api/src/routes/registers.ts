@@ -25,7 +25,7 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
     const where: any = {};
     
     if (activityId) where.activityId = activityId as string;
-    if (sessionId) where.sessionId = sessionId as string;
+    // Note: Register model doesn't have sessionId field - removed sessionId filter
     
     if (dateFrom || dateTo) {
       where.date = {};
@@ -40,43 +40,22 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
           skip,
           take,
           include: {
-            session: {
-              include: {
-                activity: {
+            activity: {
+              select: {
+                title: true,
+                type: true,
+                venue: {
                   select: {
-                    title: true,
-                    type: true,
-                    venue: {
-                      select: {
-                        name: true,
-                        address: true
-                      }
-                    }
+                    name: true,
+                    address: true
                   }
                 }
               }
             },
-            attendance: {
-              include: {
-                child: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true
-                  }
-                },
-                booking: {
-                  select: {
-                    parent: {
-                      select: {
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        phone: true
-                      }
-                    }
-                  }
-                }
+            venue: {
+              select: {
+                name: true,
+                address: true
               }
             }
           },
@@ -188,55 +167,57 @@ router.post('/auto-create', authenticateToken, requireRole(['admin', 'coordinato
   }
 }));
 
-// Update attendance
-router.put('/:id/attendance', authenticateToken, requireRole(['admin', 'coordinator', 'coach']), asyncHandler(async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { attendanceRecords } = req.body;
+// Note: Attendance tracking removed - Register model doesn't support attendance records
+// Use bookings to track attendance instead
 
-    if (!attendanceRecords || !Array.isArray(attendanceRecords)) {
-      throw new AppError('Attendance records are required', 400, 'MISSING_ATTENDANCE_RECORDS');
-    }
-
-    const updatedRecords = await registerService.updateAttendance(id, attendanceRecords);
-
-    logger.info('Attendance updated', {
-      registerId: id,
-      recordsUpdated: updatedRecords.length,
-      updatedBy: req.user!.id
-    });
-
-    res.json({
-      success: true,
-      message: 'Attendance updated successfully',
-      data: updatedRecords
-    });
-  } catch (error) {
-    logger.error('Error updating attendance:', error);
-    if (error instanceof AppError) throw error;
-    throw new AppError('Failed to update attendance', 500, 'ATTENDANCE_UPDATE_ERROR');
-  }
-}));
-
-// Get attendance stats
+// Get register stats (using bookings for attendance data)
 router.get('/:id/stats', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    const stats = await registerService.getAttendanceStats(id);
+    const register = await registerService.getRegister(id);
     
-    if (!stats) {
+    if (!register) {
       throw new AppError('Register not found', 404, 'REGISTER_NOT_FOUND');
     }
+
+    // Get bookings for this register's activity and date
+    const bookings = await prisma.booking.findMany({
+      where: {
+        activityId: register.activityId,
+        activityDate: register.date,
+        status: 'confirmed'
+      },
+      include: {
+        child: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    });
+
+    const stats = {
+      registerId: register.id,
+      date: register.date,
+      status: register.status,
+      totalBookings: bookings.length,
+      children: bookings.map(b => ({
+        id: b.child.id,
+        name: `${b.child.firstName} ${b.child.lastName}`
+      }))
+    };
 
     res.json({
       success: true,
       data: stats
     });
   } catch (error) {
-    logger.error('Error fetching attendance stats:', error);
+    logger.error('Error fetching register stats:', error);
     if (error instanceof AppError) throw error;
-    throw new AppError('Failed to fetch attendance stats', 500, 'STATS_FETCH_ERROR');
+    throw new AppError('Failed to fetch register stats', 500, 'STATS_FETCH_ERROR');
   }
 }));
 
@@ -312,21 +293,7 @@ router.get('/activity/:activityId', authenticateToken, asyncHandler(async (req: 
   }
 }));
 
-// Get registers by session
-router.get('/session/:sessionId', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
-  try {
-    const { sessionId } = req.params;
-    
-    const registers = await registerService.getRegistersBySession(sessionId);
-
-    res.json({
-      success: true,
-      data: registers
-    });
-  } catch (error) {
-    logger.error('Error fetching registers by session:', error);
-    throw new AppError('Failed to fetch registers', 500, 'REGISTERS_FETCH_ERROR');
-  }
-}));
+// Note: Get registers by session removed - Register model doesn't have sessionId
+// Use /activity/:activityId or /venue/:venueId endpoints instead
 
 export default router;

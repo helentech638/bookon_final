@@ -142,7 +142,8 @@ router.get('/reporting', authenticateToken, asyncHandler(async (req: Request, re
     });
 
     // Calculate summary
-    const summary = transactions.reduce((acc, transaction) => {
+    const summary = transactions.filter(Boolean).reduce((acc, transaction) => {
+      if (!transaction) return acc;
       acc.totalGross += transaction.grossAmount;
       acc.totalFranchiseFees += transaction.franchiseFee;
       acc.totalVat += transaction.vatAmount;
@@ -268,15 +269,17 @@ router.get('/analytics', authenticateToken, asyncHandler(async (req: Request, re
             activity.bookings.forEach(booking => {
               const payment = booking.payments[0];
               if (payment) {
-                totalRevenue += payment.amount;
+                const paymentAmount = Number(payment.amount);
+                totalRevenue += paymentAmount;
                 transactionCount += 1;
                 
                 // Calculate franchise fee (simplified)
+                const franchiseFeeValue = Number(account.franchiseFeeValue);
                 const franchiseFeeRate = account.franchiseFeeType === 'percent' 
-                  ? account.franchiseFeeValue / 100 
-                  : account.franchiseFeeValue / payment.amount;
+                  ? franchiseFeeValue / 100 
+                  : franchiseFeeValue / paymentAmount;
                 
-                totalFranchiseFees += payment.amount * franchiseFeeRate;
+                totalFranchiseFees += paymentAmount * franchiseFeeRate;
               }
             });
           });

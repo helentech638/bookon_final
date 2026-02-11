@@ -356,7 +356,7 @@ router.get('/chargebacks', authenticateToken, asyncHandler(async (req: Request, 
       child: `${chargeback.booking.child.firstName} ${chargeback.booking.child.lastName}`,
       parent: `${chargeback.booking.parent.firstName} ${chargeback.booking.parent.lastName}`,
       parentEmail: chargeback.booking.parent.email,
-      activity: chargeback.booking.activity.name,
+      activity: chargeback.booking.activity.title,
       venue: chargeback.booking.activity.venue.name,
       venueId: chargeback.booking.activity.venue.id
     }));

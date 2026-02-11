@@ -78,7 +78,7 @@ router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Respon
         title: booking.activity.title,
         description: booking.activity.description || booking.activity.title,
         price: booking.activity.price || booking.amount,
-        max_capacity: booking.activity.maxCapacity || 20,
+        max_capacity: booking.activity.capacity || 20,
         current_capacity: 15, // Default value, you might want to add this to activities table
         },
         venue: {
@@ -228,6 +228,7 @@ router.post('/', authenticateToken, validateBooking, asyncHandler(async (req: Re
         parentId: userId,
         activityId: activityId,
         childId: childId,
+        bookingDate: new Date(), // Date when booking was made
         activityDate: new Date(startDate),
         activityTime: startTime,
         status: 'pending',
@@ -579,7 +580,7 @@ router.patch('/:id/confirm', authenticateToken, asyncHandler(async (req: Request
         title: updatedBooking.activity.title,
         description: updatedBooking.activity.description || updatedBooking.activity.title,
         price: updatedBooking.activity.price || updatedBooking.amount,
-        max_capacity: updatedBooking.activity.maxCapacity || 20,
+        max_capacity: updatedBooking.activity.capacity || 20,
         current_capacity: 15,
       },
       venue: {
@@ -650,7 +651,7 @@ router.get('/:id', authenticateToken, asyncHandler(async (req: Request, res: Res
         title: booking.activity.title,
         description: booking.activity.description,
         price: booking.activity.price || booking.amount,
-        max_capacity: booking.activity.maxCapacity || 20,
+        max_capacity: booking.activity.capacity || 20,
         current_capacity: 15,
       },
       venue: {

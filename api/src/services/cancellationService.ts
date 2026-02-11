@@ -75,47 +75,12 @@ class CancellationService {
       const sessionDateTime = new Date(`${activityDate.toISOString().split('T')[0]}T${activityTime}`);
       const hoursUntilSession = (sessionDateTime.getTime() - cancellationDate.getTime()) / (1000 * 60 * 60);
       
-      // Enhanced calculation for multi-session courses
-      // Check if this is a course booking (multiple sessions)
-      const isCourseBooking = booking.activity.duration && booking.activity.duration > 1;
-      
-      let sessionsUsed = 0;
-      let sessionsRemaining = 0;
-      let valuePerSession = totalPaid;
-
-      if (isCourseBooking) {
-        // For course bookings, calculate based on course duration
-        const totalSessions = booking.activity.duration || 1;
-        const sessionDuration = booking.activity.sessionDuration || 60; // minutes
-        
-        // Calculate how many sessions have passed
-        const now = new Date();
-        const courseStartDate = new Date(booking.activity.startDate);
-        const courseEndDate = new Date(booking.activity.endDate);
-        
-        if (now < courseStartDate) {
-          // Course hasn't started yet
-          sessionsUsed = 0;
-          sessionsRemaining = totalSessions;
-        } else if (now > courseEndDate) {
-          // Course has finished
-          sessionsUsed = totalSessions;
-          sessionsRemaining = 0;
-        } else {
-          // Course is in progress - calculate sessions based on time elapsed
-          const totalCourseDuration = courseEndDate.getTime() - courseStartDate.getTime();
-          const elapsedTime = now.getTime() - courseStartDate.getTime();
-          sessionsUsed = Math.floor((elapsedTime / totalCourseDuration) * totalSessions);
-          sessionsRemaining = totalSessions - sessionsUsed;
-        }
-        
-        valuePerSession = totalPaid / totalSessions;
-      } else {
-        // Single session booking
-        sessionsUsed = hoursUntilSession < 0 ? 1 : 0;
-        sessionsRemaining = 1 - sessionsUsed;
-        valuePerSession = totalPaid;
-      }
+      // Note: Activity model doesn't have duration/sessionDuration fields
+      // Treating all bookings as single session activities
+      // For course bookings, use Course model instead
+      const sessionsUsed = hoursUntilSession < 0 ? 1 : 0; // Session has passed if negative hours
+      const sessionsRemaining = 1 - sessionsUsed;
+      const valuePerSession = totalPaid;
 
       // Calculate refundable amounts
       const refundableAmount = sessionsRemaining * valuePerSession;
@@ -204,7 +169,15 @@ class CancellationService {
           adminFee: this.ADMIN_FEE,
           method: 'credit',
           reason: 'Within 24 hours - pro-rata credit only (no cash refund)',
-          breakdown: calculation.breakdown
+          breakdown: {
+            totalPaid: calculation.totalPaid,
+            sessionsUsed: calculation.sessionsUsed,
+            sessionsRemaining: calculation.sessionsRemaining,
+            valuePerSession: calculation.valuePerSession,
+            refundableAmount: calculation.refundableAmount,
+            creditAmount: calculation.creditAmount,
+            adminFee: calculation.adminFee
+          }
         };
       }
 
@@ -218,7 +191,15 @@ class CancellationService {
           adminFee: this.ADMIN_FEE,
           method: 'credit',
           reason: 'Within 24 hours - pro-rata credit for unused sessions',
-          breakdown: calculation.breakdown
+          breakdown: {
+            totalPaid: calculation.totalPaid,
+            sessionsUsed: calculation.sessionsUsed,
+            sessionsRemaining: calculation.sessionsRemaining,
+            valuePerSession: calculation.valuePerSession,
+            refundableAmount: calculation.refundableAmount,
+            creditAmount: calculation.creditAmount,
+            adminFee: calculation.adminFee
+          }
         };
       }
 
@@ -266,7 +247,15 @@ class CancellationService {
         adminFee: this.ADMIN_FEE,
         method,
         reason: 'Cancellation eligible for refund',
-        breakdown: calculation.breakdown
+        breakdown: {
+          totalPaid: calculation.totalPaid,
+          sessionsUsed: calculation.sessionsUsed,
+          sessionsRemaining: calculation.sessionsRemaining,
+          valuePerSession: calculation.valuePerSession,
+          refundableAmount: calculation.refundableAmount,
+          creditAmount: calculation.creditAmount,
+          adminFee: calculation.adminFee
+        }
       };
     } catch (error) {
       logger.error('Error determining cancellation eligibility:', error);
@@ -306,8 +295,19 @@ class CancellationService {
 
       // Process refund if applicable
       if (eligibility.refundAmount > 0) {
+        // Get paymentId from booking's payment
+        const payment = await prisma.payment.findFirst({
+          where: { bookingId },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (!payment) {
+          throw new AppError('Payment not found for booking', 404, 'PAYMENT_NOT_FOUND');
+        }
+
         const refundTransaction = await prisma.refundTransaction.create({
           data: {
+            paymentId: payment.id,
             bookingId,
             amount: eligibility.refundAmount,
             method: 'card',
@@ -397,8 +397,19 @@ class CancellationService {
 
       // Provider cancellations have no admin fee
       if (refundMethod === 'cash' || refundMethod === 'parent_choice') {
+        // Get paymentId from booking's payment
+        const payment = await prisma.payment.findFirst({
+          where: { bookingId },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (!payment) {
+          throw new AppError('Payment not found for booking', 404, 'PAYMENT_NOT_FOUND');
+        }
+
         const refundTransaction = await prisma.refundTransaction.create({
           data: {
+            paymentId: payment.id,
             bookingId,
             amount: totalAmount,
             method: 'card',

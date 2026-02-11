@@ -146,7 +146,7 @@ router.post('/transfer', authenticateToken, validateCreditTransfer, asyncHandler
       fromProviderId,
       toProviderId,
       amount,
-      fromCreditId: result.fromCredit.id,
+      fromCreditId: result.fromCredit?.id,
       toCreditId: result.toCredit.id
     });
 

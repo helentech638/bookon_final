@@ -39,23 +39,41 @@ class StripeService {
   private platformFeeFixed: number;
 
   constructor() {
-    const secretKey = process.env['STRIPE_SECRET_KEY'];
+    const secretKey = process.env['STRIPE_SECRET_KEY'] || process.env['STRIPE_TEST_SECRET_KEY'];
     if (!secretKey) {
-      throw new Error('STRIPE_SECRET_KEY is required');
+      // In development/non-production, allow server to start without Stripe key (Stripe features will fail gracefully)
+      const isProduction = process.env['NODE_ENV'] === 'production';
+      if (!isProduction) {
+        console.warn('⚠️ STRIPE_SECRET_KEY not set - Stripe features will not work. Set STRIPE_SECRET_KEY in .env for payment functionality.');
+        // Don't initialize Stripe client if key is missing - methods will check and throw appropriate errors
+        this.stripe = null as any;
+      } else {
+        throw new Error('STRIPE_SECRET_KEY is required in production');
+      }
+    } else {
+      this.stripe = new Stripe(secretKey, {
+        apiVersion: '2023-10-16',
+      });
     }
-
-    this.stripe = new Stripe(secretKey, {
-      apiVersion: '2023-10-16',
-    });
 
     this.platformFeePercentage = parseFloat(process.env['STRIPE_PLATFORM_FEE_PERCENTAGE'] || '2.9');
     this.platformFeeFixed = parseFloat(process.env['STRIPE_PLATFORM_FEE_FIXED'] || '0.30');
   }
 
   /**
+   * Ensure Stripe client is initialized before use
+   */
+  private ensureStripeInitialized(): void {
+    if (!this.stripe) {
+      throw new Error('Stripe is not initialized. Please set STRIPE_SECRET_KEY in your environment variables.');
+    }
+  }
+
+  /**
    * Create a Stripe Connect account for a venue
    */
   async createConnectAccount(data: CreateConnectAccountRequest): Promise<StripeConnectAccount> {
+    this.ensureStripeInitialized();
     try {
       const accountData: Stripe.AccountCreateParams = {
         type: 'express',
@@ -106,6 +124,7 @@ class StripeService {
    * Get Connect account details
    */
   async getConnectAccount(accountId: string): Promise<StripeConnectAccount> {
+    this.ensureStripeInitialized();
     try {
       const account = await this.stripe.accounts.retrieve(accountId);
       
@@ -129,6 +148,7 @@ class StripeService {
    * Create account link for onboarding
    */
   async createAccountLink(accountId: string, refreshUrl: string, returnUrl: string): Promise<string> {
+    this.ensureStripeInitialized();
     try {
       const accountLink = await this.stripe.accountLinks.create({
         account: accountId,
@@ -149,6 +169,7 @@ class StripeService {
    * Create a payment intent with Connect (for multi-venue payments)
    */
   async createConnectPaymentIntent(data: CreatePaymentIntentRequest & { connectAccountId: string }): Promise<Stripe.PaymentIntent> {
+    this.ensureStripeInitialized();
     try {
       const { bookingId, amount, currency = 'gbp', connectAccountId } = data;
 
@@ -183,6 +204,7 @@ class StripeService {
    * Create a payment intent for a booking (enhanced with venue support)
    */
   async createPaymentIntent(data: CreatePaymentIntentRequest): Promise<Stripe.PaymentIntent> {
+    this.ensureStripeInitialized();
     try {
       const { bookingId, amount, currency = 'gbp', venueId } = data;
 
@@ -226,7 +248,7 @@ class StripeService {
   /**
    * Get venue's Stripe Connect account
    */
-  private async getVenueStripeAccount(venueId: string): Promise<{ stripeAccountId: string } | null> {
+  private async getVenueStripeAccount(venueId: string): Promise<{ stripeAccountId: string | null } | null> {
     try {
       // Import Prisma client
       const { prisma } = await import('../utils/prisma');

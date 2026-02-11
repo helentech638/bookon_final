@@ -410,7 +410,7 @@ class TFCService {
         child: `${booking.child.firstName} ${booking.child.lastName}`,
         parent: `${booking.parent.firstName} ${booking.parent.lastName}`,
         parentEmail: booking.parent.email,
-        activity: booking.activity.name,
+        activity: booking.activity.title,
         venue: booking.activity.venue.name,
         venueId: booking.activity.venue.id,
         amount: booking.amount,

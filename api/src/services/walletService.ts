@@ -27,6 +27,26 @@ export interface CreditUsage {
   transactionId: string;
 }
 
+// Helper function to map Prisma WalletCredit to WalletCredit interface
+function mapWalletCredit(credit: any): WalletCredit {
+  return {
+    id: credit.id,
+    parentId: credit.parentId,
+    providerId: credit.providerId,
+    bookingId: credit.bookingId,
+    amount: credit.amount,
+    usedAmount: credit.usedAmount,
+    expiryDate: credit.expiryDate,
+    source: credit.source,
+    status: credit.status,
+    description: credit.description ?? undefined,
+    createdAt: credit.createdAt,
+    updatedAt: credit.updatedAt,
+    usedAt: credit.usedAt ?? undefined,
+    transactionId: credit.transactionId ?? undefined
+  };
+}
+
 export interface WalletBalance {
   totalCredits: number;
   availableCredits: number;
@@ -94,7 +114,7 @@ class WalletService {
         usedCredits,
         expiredCredits: expiredCreditsAmount,
         creditsByProvider,
-        credits: activeCredits
+        credits: activeCredits.map(mapWalletCredit)
       };
     } catch (error) {
       logger.error('Error getting wallet balance:', error);
@@ -205,7 +225,7 @@ class WalletService {
         creditId: credit.id
       });
 
-      return credit;
+      return mapWalletCredit(credit);
     } catch (error) {
       logger.error('Error issuing credit:', error);
       throw error;
@@ -333,7 +353,7 @@ class WalletService {
     fromProviderId: string,
     toProviderId: string,
     amount: number
-  ): Promise<{ fromCredit: WalletCredit; toCredit: WalletCredit }> {
+  ): Promise<{ fromCredit: WalletCredit | undefined; toCredit: WalletCredit }> {
     try {
       const balance = await this.getWalletBalance(parentId, fromProviderId);
       
@@ -355,7 +375,7 @@ class WalletService {
         12
       );
 
-      const fromCredit = await prisma.walletCredit.findUnique({
+      const fromCreditRecord = await prisma.walletCredit.findUnique({
         where: { id: usage[0]?.creditId || '' }
       });
 
@@ -364,11 +384,14 @@ class WalletService {
         fromProviderId,
         toProviderId,
         amount,
-        fromCreditId: fromCredit?.id,
+        fromCreditId: fromCreditRecord?.id,
         toCreditId: toCredit.id
       });
 
-      return { fromCredit: fromCredit!, toCredit };
+      return { 
+        fromCredit: fromCreditRecord ? mapWalletCredit(fromCreditRecord) : undefined, 
+        toCredit: mapWalletCredit(toCredit) 
+      };
     } catch (error) {
       logger.error('Error transferring credits:', error);
       throw error;
@@ -406,7 +429,7 @@ class WalletService {
         orderBy: { expiryDate: 'asc' }
       });
 
-      return credits;
+      return credits.map((credit: any) => mapWalletCredit(credit));
     } catch (error) {
       logger.error('Error getting expiring credits:', error);
       throw error;
@@ -455,7 +478,7 @@ class WalletService {
         take: limit
       });
 
-      return credits;
+      return credits.map((credit: any) => mapWalletCredit(credit));
     } catch (error) {
       logger.error('Error getting credit history:', error);
       throw error;

@@ -3,8 +3,16 @@ import { logger } from '../utils/logger';
 import { tfcService } from './tfcService';
 import { walletService } from './walletService';
 
+interface JobInfo {
+  task: cron.ScheduledTask;
+  cronExpression: string;
+  lastRun?: Date;
+  running: boolean;
+}
+
 class SchedulerService {
   private jobs: Map<string, cron.ScheduledTask> = new Map();
+  private jobInfo: Map<string, JobInfo> = new Map();
 
   /**
    * Initialize all scheduled jobs
@@ -79,12 +87,32 @@ class SchedulerService {
       this.jobs.get(name)?.stop();
     }
 
-    const job = cron.schedule(cronExpression, task, {
+    const wrappedTask = async () => {
+      const info = this.jobInfo.get(name);
+      if (info) {
+        info.running = true;
+        info.lastRun = new Date();
+      }
+      try {
+        await task();
+      } finally {
+        if (info) {
+          info.running = false;
+        }
+      }
+    };
+
+    const job = cron.schedule(cronExpression, wrappedTask, {
       scheduled: true,
       timezone: 'Europe/London'
     });
 
     this.jobs.set(name, job);
+    this.jobInfo.set(name, {
+      task: job,
+      cronExpression,
+      running: false
+    });
     logger.info(`Scheduled job: ${name} (${cronExpression})`);
   }
 
@@ -119,14 +147,15 @@ class SchedulerService {
   /**
    * Get job status
    */
-  getJobStatus(): Array<{ name: string; running: boolean; nextRun?: Date }> {
-    const status: Array<{ name: string; running: boolean; nextRun?: Date }> = [];
+  getJobStatus(): Array<{ name: string; running: boolean; lastRun?: Date; cronExpression: string }> {
+    const status: Array<{ name: string; running: boolean; lastRun?: Date; cronExpression: string }> = [];
     
-    this.jobs.forEach((job, name) => {
+    this.jobInfo.forEach((info, name) => {
       status.push({
         name,
-        running: job.getStatus() === 'scheduled',
-        nextRun: job.nextDate()?.toDate()
+        running: info.running,
+        lastRun: info.lastRun,
+        cronExpression: info.cronExpression
       });
     });
 
@@ -204,7 +233,7 @@ class SchedulerService {
    */
   async healthCheck(): Promise<{
     status: 'healthy' | 'degraded' | 'unhealthy';
-    jobs: Array<{ name: string; status: string; lastRun?: Date; nextRun?: Date }>;
+    jobs: Array<{ name: string; status: string; lastRun?: Date; cronExpression: string }>;
     errors: string[];
   }> {
     const jobs = this.getJobStatus();
@@ -212,9 +241,10 @@ class SchedulerService {
     let unhealthyJobs = 0;
 
     jobs.forEach(job => {
-      if (!job.running) {
+      // Check if job exists in the jobs map (means it's scheduled)
+      if (!this.jobs.has(job.name)) {
         unhealthyJobs++;
-        errors.push(`Job ${job.name} is not running`);
+        errors.push(`Job ${job.name} is not scheduled`);
       }
     });
 
@@ -231,8 +261,9 @@ class SchedulerService {
       status,
       jobs: jobs.map(job => ({
         name: job.name,
-        status: job.running ? 'running' : 'stopped',
-        nextRun: job.nextRun
+        status: job.running ? 'running' : 'scheduled',
+        lastRun: job.lastRun,
+        cronExpression: job.cronExpression
       })),
       errors
     };

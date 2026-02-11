@@ -2,28 +2,45 @@ import { prisma, safePrismaQuery } from '../utils/prisma';
 import { logger } from '../utils/logger';
 
 interface RegisterData {
-  sessionId: string;
   activityId: string;
+  venueId: string;
   date: Date;
-  capacity: number;
   notes?: string;
-}
-
-interface AttendanceRecord {
-  childId: string;
-  present: boolean;
-  checkInTime?: Date;
-  checkOutTime?: Date;
-  notes?: string;
+  status?: string;
 }
 
 class RegisterService {
-  async createRegister(sessionId: string, capacity: number, notes?: string) {
+  async createRegister(activityId: string, venueId: string, date: Date, notes?: string) {
     try {
       return await safePrismaQuery(async (client) => {
-        // Get session details
-        const session = await client.session.findUnique({
-          where: { id: sessionId },
+        // Verify activity exists
+        const activity = await client.activity.findUnique({
+          where: { id: activityId },
+          select: {
+            id: true,
+            title: true,
+            venueId: true
+          }
+        });
+
+        if (!activity) {
+          throw new Error('Activity not found');
+        }
+
+        // Verify venue matches activity venue
+        if (activity.venueId !== venueId) {
+          throw new Error('Venue does not match activity venue');
+        }
+
+        // Create register
+        const register = await client.register.create({
+          data: {
+            activityId,
+            venueId,
+            date,
+            notes,
+            status: 'active'
+          },
           include: {
             activity: {
               select: {
@@ -36,39 +53,11 @@ class RegisterService {
                   }
                 }
               }
-            }
-          }
-        });
-
-        if (!session) {
-          throw new Error('Session not found');
-        }
-
-        // Create register
-        const register = await client.register.create({
-          data: {
-            sessionId,
-            activityId: session.activityId,
-            date: session.date,
-            capacity: capacity || session.capacity,
-            notes,
-            status: 'active'
-          },
-          include: {
-            session: {
-              include: {
-                activity: {
-                  select: {
-                    title: true,
-                    type: true,
-                    venue: {
-                      select: {
-                        name: true,
-                        address: true
-                      }
-                    }
-                  }
-                }
+            },
+            venue: {
+              select: {
+                name: true,
+                address: true
               }
             }
           }
@@ -76,9 +65,9 @@ class RegisterService {
 
         logger.info('Register created', {
           registerId: register.id,
-          sessionId,
-          activityId: session.activityId,
-          date: session.date
+          activityId,
+          venueId,
+          date
         });
 
         return register;
@@ -95,47 +84,22 @@ class RegisterService {
         return await client.register.findUnique({
           where: { id: registerId },
           include: {
-            session: {
-              include: {
-                activity: {
+            activity: {
+              select: {
+                title: true,
+                type: true,
+                venue: {
                   select: {
-                    title: true,
-                    type: true,
-                    venue: {
-                      select: {
-                        name: true,
-                        address: true
-                      }
-                    }
+                    name: true,
+                    address: true
                   }
                 }
               }
             },
-            attendance: {
-              include: {
-                child: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    dateOfBirth: true,
-                    medicalInfo: true,
-                    emergencyContact: true
-                  }
-                },
-                booking: {
-                  select: {
-                    id: true,
-                    parent: {
-                      select: {
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        phone: true
-                      }
-                    }
-                  }
-                }
+            venue: {
+              select: {
+                name: true,
+                address: true
               }
             }
           }
@@ -161,19 +125,16 @@ class RegisterService {
         return await client.register.findMany({
           where,
           include: {
-            session: {
-              include: {
-                activity: {
-                  select: {
-                    title: true,
-                    type: true
-                  }
-                }
+            activity: {
+              select: {
+                title: true,
+                type: true
               }
             },
-            _count: {
+            venue: {
               select: {
-                attendance: true
+                name: true,
+                address: true
               }
             }
           },
@@ -186,163 +147,106 @@ class RegisterService {
     }
   }
 
-  async getRegistersBySession(sessionId: string) {
+  async getRegistersByVenue(venueId: string, dateFrom?: Date, dateTo?: Date) {
     try {
       return await safePrismaQuery(async (client) => {
+        const where: any = { venueId };
+        
+        if (dateFrom || dateTo) {
+          where.date = {};
+          if (dateFrom) where.date.gte = dateFrom;
+          if (dateTo) where.date.lte = dateTo;
+        }
+
         return await client.register.findMany({
-          where: { sessionId },
+          where,
           include: {
-            session: {
-              include: {
-                activity: {
-                  select: {
-                    title: true,
-                    type: true
-                  }
-                }
+            activity: {
+              select: {
+                title: true,
+                type: true
               }
             },
-            _count: {
+            venue: {
               select: {
-                attendance: true
+                name: true,
+                address: true
               }
             }
           },
-          orderBy: { createdAt: 'desc' }
+          orderBy: { date: 'desc' }
         });
       });
     } catch (error) {
-      logger.error('Failed to get registers by session:', error);
+      logger.error('Failed to get registers by venue:', error);
       throw error;
     }
   }
 
-  async updateAttendance(registerId: string, attendanceRecords: AttendanceRecord[]) {
+  async updateRegister(registerId: string, data: Partial<RegisterData & { status?: string }>) {
     try {
       return await safePrismaQuery(async (client) => {
-        const register = await client.register.findUnique({
-          where: { id: registerId },
-          include: {
-            session: {
-              include: {
-                bookings: {
-                  include: {
-                    child: true
-                  }
-                }
-              }
-            }
-          }
-        });
-
-        if (!register) {
-          throw new Error('Register not found');
-        }
-
-        // Get existing attendance records
-        const existingAttendance = await client.attendance.findMany({
-          where: { registerId }
-        });
-
-        // Update or create attendance records
-        const results = [];
-        for (const record of attendanceRecords) {
-          const existing = existingAttendance.find(a => a.childId === record.childId);
-          
-          if (existing) {
-            // Update existing record
-            const updated = await client.attendance.update({
-              where: { id: existing.id },
-              data: {
-                present: record.present,
-                checkInTime: record.checkInTime,
-                checkOutTime: record.checkOutTime,
-                notes: record.notes
-              }
-            });
-            results.push(updated);
-          } else {
-            // Create new record
-            const created = await client.attendance.create({
-              data: {
-                registerId,
-                childId: record.childId,
-                present: record.present,
-                checkInTime: record.checkInTime,
-                checkOutTime: record.checkOutTime,
-                notes: record.notes
-              }
-            });
-            results.push(created);
-          }
-        }
-
-        // Update register statistics
-        const presentCount = results.filter(r => r.present).length;
-        const totalCount = results.length;
-
-        await client.register.update({
+        const register = await client.register.update({
           where: { id: registerId },
           data: {
-            presentCount,
-            totalCount,
-            lastUpdated: new Date()
-          }
-        });
-
-        logger.info('Attendance updated', {
-          registerId,
-          presentCount,
-          totalCount
-        });
-
-        return results;
-      });
-    } catch (error) {
-      logger.error('Failed to update attendance:', error);
-      throw error;
-    }
-  }
-
-  async getAttendanceStats(registerId: string) {
-    try {
-      return await safePrismaQuery(async (client) => {
-        const register = await client.register.findUnique({
-          where: { id: registerId },
+            ...(data.date && { date: data.date }),
+            ...(data.notes !== undefined && { notes: data.notes }),
+            ...(data.status && { status: data.status })
+          },
           include: {
-            attendance: true,
-            session: {
-              include: {
-                bookings: {
-                  include: {
-                    child: true
-                  }
-                }
+            activity: {
+              select: {
+                title: true,
+                type: true
+              }
+            },
+            venue: {
+              select: {
+                name: true,
+                address: true
               }
             }
           }
         });
 
-        if (!register) return null;
+        logger.info('Register updated', { registerId });
 
-        const totalBookings = register.session.bookings.length;
-        const totalAttendance = register.attendance.length;
-        const presentCount = register.attendance.filter(a => a.present).length;
-        const absentCount = totalAttendance - presentCount;
-        const noShowCount = totalBookings - totalAttendance;
-
-        return {
-          totalBookings,
-          totalAttendance,
-          presentCount,
-          absentCount,
-          noShowCount,
-          attendanceRate: totalBookings > 0 ? (totalAttendance / totalBookings) * 100 : 0,
-          presentRate: totalAttendance > 0 ? (presentCount / totalAttendance) * 100 : 0
-        };
+        return register;
       });
     } catch (error) {
-      logger.error('Failed to get attendance stats:', error);
+      logger.error('Failed to update register:', error);
+      throw error;
+    }
+  }
+
+  async updateRegisterStatus(registerId: string, status: string) {
+    try {
+      return await safePrismaQuery(async (client) => {
+        const register = await client.register.update({
+          where: { id: registerId },
+          data: { status },
+          include: {
+            activity: {
+              select: {
+                title: true,
+                type: true
+              }
+            },
+            venue: {
+              select: {
+                name: true,
+                address: true
+              }
+            }
+          }
+        });
+
+        logger.info('Register status updated', { registerId, status });
+
+        return register;
+      });
+    } catch (error) {
+      logger.error('Failed to update register status:', error);
       throw error;
     }
   }
@@ -359,53 +263,56 @@ class RegisterService {
             }
           },
           include: {
-            session: {
-              include: {
-                activity: {
-                  select: {
-                    title: true,
-                    type: true
-                  }
-                }
+            activity: {
+              select: {
+                title: true,
+                type: true
               }
             },
-            attendance: {
-              include: {
-                child: {
-                  select: {
-                    firstName: true,
-                    lastName: true
-                  }
-                }
+            venue: {
+              select: {
+                name: true,
+                address: true
               }
             }
           },
           orderBy: { date: 'asc' }
         });
 
+        // Get bookings for the same activity and date range to calculate attendance
+        const bookings = await client.booking.findMany({
+          where: {
+            activityId,
+            activityDate: {
+              gte: dateFrom,
+              lte: dateTo
+            },
+            status: 'confirmed'
+          },
+          include: {
+            child: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        });
+
         const report = {
           activityId,
           dateFrom,
           dateTo,
-          totalSessions: registers.length,
-          totalAttendance: registers.reduce((sum, r) => sum + r.attendance.length, 0),
-          totalPresent: registers.reduce((sum, r) => sum + r.presentCount, 0),
-          averageAttendance: registers.length > 0 
-            ? registers.reduce((sum, r) => sum + r.attendance.length, 0) / registers.length 
-            : 0,
-          sessions: registers.map(register => ({
+          totalRegisters: registers.length,
+          totalBookings: bookings.length,
+          registers: registers.map(register => ({
+            id: register.id,
             date: register.date,
-            presentCount: register.presentCount,
-            totalCount: register.totalCount,
-            attendanceRate: register.totalCount > 0 
-              ? (register.presentCount / register.totalCount) * 100 
-              : 0,
-            children: register.attendance.map(att => ({
-              name: `${att.child.firstName} ${att.child.lastName}`,
-              present: att.present,
-              checkInTime: att.checkInTime,
-              checkOutTime: att.checkOutTime
-            }))
+            status: register.status,
+            notes: register.notes,
+            venue: register.venue.name,
+            activity: register.activity.title
           }))
         };
 
@@ -420,12 +327,6 @@ class RegisterService {
   async deleteRegister(registerId: string) {
     try {
       await safePrismaQuery(async (client) => {
-        // Delete attendance records first
-        await client.attendance.deleteMany({
-          where: { registerId }
-        });
-
-        // Delete the register
         await client.register.delete({
           where: { id: registerId }
         });
@@ -441,51 +342,56 @@ class RegisterService {
   async autoCreateRegistersForActivity(activityId: string, startDate: Date, endDate: Date) {
     try {
       return await safePrismaQuery(async (client) => {
-        // Get all sessions for the activity in the date range
-        const sessions = await client.session.findMany({
-          where: {
-            activityId,
-            date: {
-              gte: startDate,
-              lte: endDate
-            },
-            status: 'active'
-          },
-          include: {
-                activity: {
-                  select: {
-                    title: true,
-                    capacity: true
-                  }
-                }
-              }
+        // Get activity details
+        const activity = await client.activity.findUnique({
+          where: { id: activityId },
+          select: {
+            id: true,
+            venueId: true,
+            title: true
+          }
         });
 
+        if (!activity) {
+          throw new Error('Activity not found');
+        }
+
+        // Generate registers for each day in the date range
         const registers = [];
-        for (const session of sessions) {
-          // Check if register already exists
+        const currentDate = new Date(startDate);
+        
+        while (currentDate <= endDate) {
+          // Check if register already exists for this date
           const existingRegister = await client.register.findFirst({
-            where: { sessionId: session.id }
+            where: {
+              activityId,
+              date: {
+                gte: new Date(currentDate.setHours(0, 0, 0, 0)),
+                lt: new Date(currentDate.setHours(23, 59, 59, 999))
+              }
+            }
           });
 
           if (!existingRegister) {
             const register = await client.register.create({
               data: {
-                sessionId: session.id,
-                activityId: session.activityId,
-                date: session.date,
-                capacity: session.capacity || session.activity.capacity || 0,
+                activityId,
+                venueId: activity.venueId,
+                date: new Date(currentDate),
                 status: 'active'
               }
             });
             registers.push(register);
           }
+
+          // Move to next day
+          currentDate.setDate(currentDate.getDate() + 1);
         }
 
         logger.info('Auto-created registers', {
           activityId,
           registersCreated: registers.length,
-          totalSessions: sessions.length
+          dateRange: { startDate, endDate }
         });
 
         return registers;

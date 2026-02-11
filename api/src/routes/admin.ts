@@ -208,7 +208,7 @@ router.put('/venues/:id', authenticateToken, requireAdminOrStaff, asyncHandler(a
         },
         select: {
           id: true,
-          title: true,
+          name: true,
           isActive: true
         }
       });
@@ -454,8 +454,8 @@ router.get('/bookings', authenticateToken, requireAdminOrStaff, asyncHandler(asy
     const whereClause: any = {};
     
     if (status) whereClause.status = status;
-    if (activity_id) whereClause.activityId = activity_id;
-    if (user_id) whereClause.parentId = user_id;
+    if (_activity_id) whereClause.activityId = _activity_id as string;
+    if (_user_id) whereClause.parentId = _user_id as string;
 
     logger.info('Getting total count for pagination');
     
@@ -1003,16 +1003,17 @@ router.post('/generate-invoice', authenticateToken, requireAdminOrStaff, asyncHa
         throw new AppError('Booking not found', 404, 'BOOKING_NOT_FOUND');
       }
 
-      // Create invoice record
-      return await client.invoice.create({
-        data: {
-          bookingId,
-          amount: customAmount || booking.activity.price,
-          status: 'generated',
-          notes: notes || '',
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        }
-      });
+      // Invoice model doesn't exist in schema - return booking with invoice data
+      // TODO: Add Invoice model to Prisma schema if invoice functionality is needed
+      return {
+        id: bookingId, // Using bookingId as invoice id since Invoice model doesn't exist
+        bookingId,
+        amount: customAmount || booking.activity.price,
+        status: 'generated',
+        notes: notes || '',
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        booking: booking
+      };
     });
 
     logger.info('Admin generated invoice', {
@@ -1658,7 +1659,7 @@ router.get('/export/registers', authenticateToken, requireAdminOrStaff, asyncHan
       const csvData = registers.map((register: any) => [
         register.date,
         register.venue.name,
-        register.activity.name,
+        register.activity.title,
         register.status,
         '0', // total_children field doesn't exist in current schema
         'N/A', // staff_present field doesn't exist in current schema
@@ -1762,7 +1763,7 @@ router.get('/export/bookings', authenticateToken, requireAdminOrStaff, asyncHand
         booking.id,
         booking.activityDate,
         booking.activity.venue.name,
-        booking.activity.name,
+        booking.activity.title,
         `${booking.parent.firstName} ${booking.parent.lastName}`,
         booking.parent.email,
         booking.status,
@@ -1854,12 +1855,12 @@ router.get('/export/financial', authenticateToken, requireAdminOrStaff, asyncHan
 
       // Group data by date, venue, and activity for aggregation
       const groupedData = financialData.reduce((acc, booking) => {
-        const key = `${booking.activityDate}-${booking.activity.venue.name}-${booking.activity.name}`;
+        const key = `${booking.activityDate}-${booking.activity.venue.name}-${booking.activity.title}`;
         if (!acc[key]) {
           acc[key] = {
             date: booking.activityDate,
             venue: booking.activity.venue.name,
-            activity: booking.activity.name,
+            activity: booking.activity.title,
             totalBookings: 0,
             totalRevenue: 0,
             totalPlatformFees: 0

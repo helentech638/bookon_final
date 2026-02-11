@@ -258,7 +258,7 @@ class EmailService {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { result?: { valid?: boolean } };
         return data.result?.valid === true;
       }
 
